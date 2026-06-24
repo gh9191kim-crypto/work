@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RGB OLED 전도도 거동 시뮬레이터 (FFR / Gray Crushing)</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#2b3340;
+    --text:#e6edf3; --muted:#9aa7b4; --accent:#58a6ff;
+    --hole:#ff6b5e; --elec:#5ec8ff; --R:#ff5252; --G:#43d17a; --B:#4d8bff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Malgun Gothic","맑은 고딕",sans-serif;
+    font-size:14px;line-height:1.5}
+  header{padding:14px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+  header h1{margin:0;font-size:18px}
+  header p{margin:4px 0 0;color:var(--muted);font-size:12.5px}
+  .wrap{display:grid;grid-template-columns:1.35fr 1fr;gap:14px;padding:14px;max-width:1500px;margin:0 auto}
+  @media(max-width:1050px){.wrap{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .card h2{margin:0 0 10px;font-size:14px;letter-spacing:.3px}
+  canvas{display:block;width:100%;border-radius:8px;background:#06090f}
+  .tabs{display:flex;gap:8px;margin-bottom:10px}
+  .tab{flex:1;padding:9px;text-align:center;border:1px solid var(--line);border-radius:8px;
+    background:var(--panel2);cursor:pointer;color:var(--muted);font-weight:600;font-size:13px}
+  .tab.active{background:var(--accent);color:#06121f;border-color:var(--accent)}
+  .row{display:flex;align-items:center;gap:10px;margin:8px 0}
+  .row label{width:128px;color:var(--muted);font-size:12.5px}
+  .row input[type=range]{flex:1}
+  .row .val{width:84px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px;color:var(--text)}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{padding:6px 10px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);
+    border-radius:7px;cursor:pointer;font-size:12.5px}
+  .seg button.active{background:#243042;color:var(--text);border-color:var(--accent)}
+  .hint{color:var(--muted);font-size:11.5px;margin-top:4px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--muted)}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px}
+  th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right}
+  th:first-child,td:first-child{text-align:left;color:var(--muted)}
+  .big{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums}
+  .unit{font-size:13px;color:var(--muted);font-weight:400}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+  .ok{background:#10331f;color:#56d98b}.warn{background:#3a2a10;color:#e3b341}.bad{background:#3a1620;color:#ff7b86}
+  .note{background:var(--panel2);border-left:3px solid var(--accent);padding:9px 11px;border-radius:6px;
+    font-size:12.5px;color:#cdd9e5;margin-top:8px}
+  .btn{padding:9px 14px;border:1px solid var(--accent);background:var(--accent);color:#06121f;
+    border-radius:8px;cursor:pointer;font-weight:700}
+  .btn.ghost{background:transparent;color:var(--accent)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  small.k{color:var(--muted)}
+  details{margin-top:8px}summary{cursor:pointer;color:var(--accent);font-size:12.5px}
+</style>
+</head>
+<body>
+<header>
+  <h1>RGB OLED 전도도(Conductivity) 거동 시뮬레이터</h1>
+  <p>각 layer(HIL·HTL·EML·ETL·EIL)의 전도도를 바꿨을 때 전자·홀의 이동과 <b>Lateral Leakage</b>가
+     <b>FFR</b>과 <b>Gray Crushing</b>에 미치는 영향을 시각적으로 이해합니다. (저계조 화질 분석용)</p>
+</header>
+
+<div class="wrap">
+  <!-- LEFT : VISUALIZATION -->
+  <div class="card">
+    <h2>단면 거동 시각화 (Cross-section)</h2>
+    <canvas id="stage" width="760" height="470"></canvas>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--hole)"></span>홀(Hole) — Anode에서 주입</span>
+      <span><span class="dot" style="background:var(--elec)"></span>전자(Electron) — Cathode에서 주입</span>
+      <span><span class="dot" style="background:#ffe27a"></span>재결합 발광(Recombination)</span>
+      <span>↔ 점선 = 공통층 Lateral Leakage</span>
+    </div>
+    <div class="note" id="mechNote"></div>
+  </div>
+
+  <!-- RIGHT : CONTROLS + RESULTS -->
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div class="card">
+      <div class="tabs">
+        <div class="tab active" data-meas="ffr">① FFR 측정</div>
+        <div class="tab" data-meas="gray">② Gray Crushing 측정</div>
+      </div>
+
+      <div class="row">
+        <label>물리 모델</label>
+        <div class="seg" id="modelSeg">
+          <button data-model="concept" class="active">개념 모델 (직관)</button>
+          <button data-model="quant">정량 모델 (근사)</button>
+        </div>
+      </div>
+      <div class="hint" id="modelHint"></div>
+
+      <h2 style="margin-top:14px">Layer 전도도 σ</h2>
+      <div id="sliders"></div>
+
+      <div class="row" style="margin-top:12px">
+        <label>계조 (Gray Level)</label>
+        <input type="range" id="gray" min="2" max="100" value="12">
+        <span class="val" id="grayVal"></span>
+      </div>
+      <div class="hint">저계조일수록 Leakage·충전지연의 영향이 커집니다.</div>
+
+      <!-- gray-crushing scenario selector -->
+      <div id="grayCtl" style="display:none">
+        <div class="row"><label>점등 시나리오</label>
+          <div class="seg" id="driveSeg">
+            <button data-drive="R" style="color:var(--R)">R 단독</button>
+            <button data-drive="G" style="color:var(--G)">G 단독</button>
+            <button data-drive="B" style="color:var(--B)">B 단독</button>
+            <button data-drive="W" class="active">WHITE</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ffr control -->
+      <div id="ffrCtl">
+        <div class="row" style="margin-top:8px">
+          <label>주사율</label>
+          <div class="seg" id="hzSeg">
+            <button data-hz="60" class="active">60 Hz</button>
+            <button data-hz="120">120 Hz</button>
+            <button data-hz="240">240 Hz</button>
+          </div>
+        </div>
+        <button class="btn" id="flashBtn" style="margin-top:6px">⚡ BLACK → WHITE 전환 (1프레임)</button>
+      </div>
+    </div>
+
+    <!-- RESULTS -->
+    <div class="card" id="resCard">
+      <h2 id="resTitle"></h2>
+      <div id="resBody"></div>
+    </div>
+  </div>
+</div>
+
+<footer style="text-align:center;color:var(--muted);font-size:11.5px;padding:10px 0 24px">
+  교육용 근사 모델 · 절대값이 아닌 <b>경향(trend)</b> 이해용입니다.
+</footer>
+
+<script>
+/* ============================================================
+   RGB OLED Conductivity Behavior Simulator
+   - 2 models: conceptual (intuitive) / quantitative (R-diode network)
+   - 2 measurements: FFR, Gray Crushing
+   ============================================================ */
+
+/* ---------- geometry & device constants (quant) ---------- */
+const T = { HIL:10, HTL:120, EML:40, ETL:35, EIL:1 };   // nm
+const AREA = 2.7e-5;     // cm^2  subpixel emission area
+const WIDTH = 9e-3;      // cm    subpixel width (lateral cross-section)
+const GAP   = 2.0e-3;    // cm    lateral path length between neighbor nodes
+const CPIX = 1.0e-9;     // F   effective lumped node capacitance (storage+parasitic)
+const LEAK_K = 300;      // lateral leakage coupling (calibrated, dimensionless)
+const KJ = 2e-5;         // EML current coefficient (SCLC-like, A/V^2)
+
+/* per-color EML character: Vk = turn-on knee, emlScale/eff = relative output.
+   Differences across R/G/B make leakage redistribute current asymmetrically (realistic crushing). */
+const COL = [
+  {name:'R', color:'#ff5252', emlScale:0.6, eff:1.00, Vk:1.6},
+  {name:'G', color:'#43d17a', emlScale:1.0, eff:1.30, Vk:1.8},
+  {name:'B', color:'#4d8bff', emlScale:0.5, eff:0.55, Vk:2.2},
+];
+
+/* default conductivities (S/cm), log slider 1e-9 .. 1e-3 */
+const SIG_DEF = { HIL:1e-5, HTL:1e-6, EML:1e-8, ETL:1e-6, EIL:1e-5 };
+
+/* ---------- state ---------- */
+const S = {
+  meas:'ffr', model:'concept', gray:0.12, drive:'W', hz:60,
+  sigma:Object.assign({},SIG_DEF),         // quant (S/cm)
+  conc:{HIL:0.7,HTL:0.45,EML:0.3,ETL:0.45,EIL:0.7}, // concept (0..1)
+};
+
+/* ============================================================
+   QUANTITATIVE MODEL — 1-D resistor + diode network (3 subpixels)
+   nodes: Vh[i], Ve[i] ; anode=Vdrive (on) / 0 (off) ; cathode=0
+   ============================================================ */
+function Rvert(t_nm, sigma){ return (t_nm*1e-7)/(sigma*AREA); } // ohm
+
+function solveQuant(driveVec, gray){
+  const s=S.sigma, N=3;
+  const Vdd = 2.2 + gray*3.4;                  // applied voltage scales with gray
+  const VA = driveVec.map(d=> d? Vdd : 0);
+  const g_AH = 1/(Rvert(T.HIL,s.HIL)+Rvert(T.HTL,s.HTL));
+  const g_EC = 1/(Rvert(T.ETL,s.ETL)+Rvert(T.EIL,s.EIL));
+  const latMul = _noLat?0:LEAK_K;
+  const g_latH = latMul*s.HTL*(T.HTL*1e-7*WIDTH)/GAP; // common HTL sheet
+  const g_latE = latMul*s.ETL*(T.ETL*1e-7*WIDTH)/GAP; // common ETL sheet
+
+  // EML recombination current: SCLC-like quadratic above turn-on knee (bounded, no overflow)
+  function diode(i,vh,ve){
+    const sc = COL[i].emlScale*Math.max(s.EML/SIG_DEF.EML,1e-3); // EML σ modulates output
+    const o  = Math.max(0, vh-ve-COL[i].Vk);
+    return [KJ*sc*o*o, 2*KJ*sc*o];
+  }
+
+  // unknown x = [Vh0,Ve0,Vh1,Ve1,Vh2,Ve2]
+  let x=[]; for(let i=0;i<N;i++){ x.push(VA[i]*0.7, VA[i]*0.2); }
+  for(let it=0; it<200; it++){
+    const F=new Array(2*N).fill(0);
+    const J=Array.from({length:2*N},()=>new Array(2*N).fill(0));
+    for(let i=0;i<N;i++){
+      const vh=x[2*i], ve=x[2*i+1];
+      const [Id,gd]=diode(i,vh,ve);
+      const nb=[i-1,i+1].filter(j=>j>=0&&j<N);
+      // F_h
+      let fh = g_AH*(VA[i]-vh) - Id;
+      nb.forEach(j=> fh -= g_latH*(vh-x[2*j]));
+      F[2*i]=fh;
+      J[2*i][2*i]   = -g_AH - gd - g_latH*nb.length;
+      J[2*i][2*i+1] = +gd;
+      nb.forEach(j=> J[2*i][2*j] += g_latH);
+      // F_e
+      let fe = Id - g_EC*ve;
+      nb.forEach(j=> fe -= g_latE*(ve-x[2*j+1]));
+      F[2*i+1]=fe;
+      J[2*i+1][2*i]   = +gd;
+      J[2*i+1][2*i+1] = -gd - g_EC - g_latE*nb.length;
+      nb.forEach(j=> J[2*i+1][2*j+1] += g_latE);
+    }
+    const dx=gauss(J,F.map(v=>-v));
+    let mx=0; for(let k=0;k<dx.length;k++){ if(Math.abs(dx[k])>0.5) dx[k]=0.5*Math.sign(dx[k]); mx=Math.max(mx,Math.abs(dx[k])); }
+    for(let k=0;k<x.length;k++) x[k]+=dx[k];
+    if(mx<1e-7) break;
+  }
+  const cols=[];
+  for(let i=0;i<N;i++){
+    const vh=x[2*i],ve=x[2*i+1];
+    const [Id]=diode(i,vh,ve);
+    const nb=[i-1,i+1].filter(j=>j>=0&&j<N);
+    let leak=0; nb.forEach(j=> leak += Math.abs(g_latH*(vh-x[2*j])) + Math.abs(g_latE*(ve-x[2*j+1])));
+    cols.push({vh,ve,Id:Math.max(Id,0),leak, lum:Math.max(Id,0)*COL[i].eff});
+  }
+  return cols;
+}
+
+function gauss(A,b){ // dense Gauss-Jordan, partial pivot
+  const n=b.length, M=A.map((r,i)=>r.concat([b[i]]));
+  for(let c=0;c<n;c++){
+    let p=c; for(let r=c+1;r<n;r++) if(Math.abs(M[r][c])>Math.abs(M[p][c])) p=r;
+    [M[c],M[p]]=[M[p],M[c]];
+    const pv=M[c][c]||1e-30;
+    for(let r=0;r<n;r++){ if(r===c)continue; const f=M[r][c]/pv;
+      for(let k=c;k<=n;k++) M[r][k]-=f*M[c][k]; }
+  }
+  const x=new Array(n);
+  for(let i=0;i<n;i++) x[i]=M[i][n]/(M[i][i]||1e-30);
+  return x;
+}
+
+/* ============================================================
+   CONCEPTUAL MODEL — closed-form, normalized 0..1
+   ============================================================ */
+function seriesConc(){
+  const c=S.conc, e=1e-3;
+  return 5/((1/(c.HIL+e))+(1/(c.HTL+e))+(1/(c.EML+e))+(1/(c.ETL+e))+(1/(c.EIL+e)));
+}
+function solveConc(driveVec, gray){
+  const c=S.conc;
+  const a = seriesConc();                  // vertical injection conductance 0..1
+  const common = (c.HTL+c.ETL)/2;          // common-layer conductivity 0..1
+  // leakage fraction: steep in common conductivity -> benign until common layers get conductive
+  const leakFull = Math.pow(common,4)/(Math.pow(common,4)+0.78);
+  const cols=[];
+  for(let i=0;i<3;i++){
+    const d = driveVec[i]?gray:0;
+    const I0 = d*a*COL[i].eff;
+    const nbDriven = (driveVec[i-1]?1:0)+(driveVec[i+1]?1:0);
+    const balance = nbDriven/2;             // symmetric (white) drive cancels net lateral flow
+    const effLeak = leakFull*(1-0.85*balance);
+    const lum = I0*(1-effLeak);
+    cols.push({Id:lum, lum, leak:I0*effLeak, vertFrac:1-effLeak});
+  }
+  return cols;
+}
+
+/* unified solve */
+function solve(driveVec, gray){
+  return S.model==='quant'? solveQuant(driveVec,gray) : solveConc(driveVec,gray);
+}
+function driveOf(sel){ return sel==='W'?[1,1,1]:[sel==='R'?1:0,sel==='G'?1:0,sel==='B'?1:0]; }
+
+/* ---------- FFR ---------- */
+function computeFFR(gray){
+  const cols=solve([1,1,1],gray);
+  const Itot=cols.reduce((s,c)=>s+c.Id,0)/3;
+  let tau;
+  if(S.model==='quant'){
+    const Vsw = 2.2+gray*3.4;
+    tau = CPIX*Vsw/Math.max(Itot,1e-13);          // s, current-limited charging
+  }else{
+    const a=seriesConc();
+    tau = 0.00018/Math.max(a*gray,1e-3);          // s (normalized)
+  }
+  const tframe=1/S.hz;
+  const pct=(1-Math.exp(-tframe/Math.max(tau,1e-9)))*100;
+  return {tau, pct, tframe, Itot, cols};
+}
+
+/* ---------- Gray Crushing ---------- */
+function computeCrush(gray){
+  const ideal=[], real=[];
+  for(let i=0;i<3;i++){
+    const dv=[0,0,0]; dv[i]=1;
+    const real_i = solve(dv,gray)[i].lum;
+    // ideal = no lateral leakage
+    const saveQ=S.sigma, saveC=S.conc;
+    let ideal_i;
+    if(S.model==='quant'){
+      // emulate no-leak by tiny lateral path: temporarily set width 0 via solve copy
+      ideal_i = solveNoLeak(dv,gray)[i].lum;
+    }else{
+      const bk={...S.conc}; ideal_i = (function(){const a=seriesConc();return gray*a*COL[i].eff;})();
+      S.conc=bk;
+    }
+    real.push(real_i); ideal.push(ideal_i);
+  }
+  const ratio = real.map((r,i)=> ideal[i]>0? r/ideal[i]*100 : 100);
+  return {real, ideal, ratio};
+}
+function solveNoLeak(driveVec,gray){
+  const sBak=S.sigma; // zero lateral by shrinking WIDTH? easier: temp set HTL/ETL lateral via flag
+  // do a no-lateral solve: reuse solveQuant but with g_lat forced ~0
+  const realW = WIDTH;
+  // monkey approach: temporarily scale lateral to ~0
+  _noLat=true; const r=solveQuant(driveVec,gray); _noLat=false; return r;
+}
+let _noLat=false;
+
+/* ============================================================
+   RENDER — cross section + particles
+   ============================================================ */
+const cv=document.getElementById('stage'), ctx=cv.getContext('2d');
+const W=cv.width, H=cv.height;
+const LAYOUT=[
+  {k:'Cathode',h:26,c:'#7d8590',t:'Cathode (공통)'},
+  {k:'EIL',h:14,c:'#324154'},
+  {k:'ETL',h:46,c:'#2a3b52',common:true,t:'ETL (공통)'},
+  {k:'EML',h:60,c:'#1d2636',eml:true,t:'EML (R/G/B)'},
+  {k:'HTL',h:60,c:'#3a2b44',common:true,t:'HTL (공통)'},
+  {k:'HIL',h:14,c:'#3a2438'},
+  {k:'Anode',h:26,c:'#caa24a',t:'Anode (화소별)'},
+];
+const COLX=[0.10,0.40,0.70]; // left edge of each subpixel (fraction), width 0.20
+const SUBW=0.20*W;
+function layerY(){ let y=14,map={}; LAYOUT.forEach(l=>{map[l.k]={y,h:l.h};y+=l.h;}); return map; }
+const LY=layerY();
+
+let particles=[];
+let curRes=null;     // cached scenario result for viz
+let flash={t:0,active:false};
+
+function spawnParticles(){
+  particles=[];
+  const dv = S.meas==='ffr'? [1,1,1] : driveOf(S.drive);
+  const cols = solve(dv, S.gray);
+  const maxI = Math.max(1e-9, ...cols.map(c=>c.Id+c.leak));
+  for(let i=0;i<3;i++){
+    if(!dv[i] && S.meas==='gray') continue;
+    const c=cols[i];
+    const n = Math.round(6+38*(c.Id+c.leak)/maxI);
+    const leakP = (c.leak)/(c.Id+c.leak+1e-12);
+    for(let p=0;p<n;p++){
+      particles.push(mkP('h',i,leakP));
+      particles.push(mkP('e',i,leakP));
+    }
+  }
+  curRes={cols,dv,leakAvg: cols.reduce((s,c)=>s+c.leak/(c.Id+c.leak+1e-12),0)/3};
+}
+function mkP(type,col,leakP){
+  const x = (COLX[col]*W)+SUBW*(0.2+0.6*Math.random());
+  const y = type==='h'? LY.Anode.y+10 : LY.Cathode.y+8;
+  return {type,col,x,y,vy:type==='h'?-1:1,leak:Math.random()<leakP, drift:(Math.random()<0.5?-1:1), spd:0.6+Math.random()*0.9, dead:false, glow:0};
+}
+
+function step(p){
+  const emlY=LY.EML.y, emlB=LY.EML.y+LY.EML.h;
+  const htlY=LY.HTL.y, htlB=LY.HTL.y+LY.HTL.h;
+  const etlY=LY.ETL.y, etlB=LY.ETL.y+LY.ETL.h;
+  p.y += p.vy*p.spd*(S.model==='quant'?1:1.1);
+  // lateral leakage drift inside common transport layers
+  if(p.leak){
+    const inHTL = p.type==='h' && p.y<htlB && p.y>htlY-30;
+    const inETL = p.type==='e' && p.y>etlY && p.y<etlB+30;
+    if(inHTL||inETL){
+      const tgt = p.col + p.drift;
+      if(tgt>=0&&tgt<3){ p.x += p.drift*1.4;
+        if(Math.abs(p.x-((COLX[tgt]*W)+SUBW*0.5))<SUBW*0.45 && Math.random()<0.04) p.col=tgt;
+      } else p.leak=false;
+    }
+  }
+  // recombination in EML
+  if(p.y>emlY && p.y<emlB){
+    if(Math.random()<0.06){ p.glow=1; p.dead=true; }
+  }
+  if(p.y<6||p.y>H-6) p.dead=true;
+}
+
+const glows=[];
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  // layers
+  LAYOUT.forEach(l=>{
+    const y=LY[l.k].y,h=LY[l.k].h;
+    if(l.eml){
+      for(let i=0;i<3;i++){ ctx.fillStyle=shade(COL[i].color,.20); ctx.fillRect(COLX[i]*W,y,SUBW,h); }
+    } else if(l.k==='Anode'){
+      const dv=S.meas==='ffr'?(flash.active||flashHold?[1,1,1]:[0,0,0]):driveOf(S.drive);
+      for(let i=0;i<3;i++){ ctx.fillStyle= dv[i]? shade(COL[i].color,.55):'#3a3320'; ctx.fillRect(COLX[i]*W,y,SUBW,h); }
+    } else { ctx.fillStyle=l.c; ctx.fillRect(0.10*W,y,0.80*W,h); }
+    if(l.common){ ctx.strokeStyle='rgba(255,255,255,.10)';ctx.setLineDash([5,5]);
+      ctx.strokeRect(0.10*W,y+1,0.80*W,h-2);ctx.setLineDash([]); }
+    ctx.fillStyle='#7c8a99';ctx.font='11px sans-serif';ctx.textAlign='left';
+    ctx.fillText(l.t||l.k, 0.105*W+4, y+13);
+  });
+  // subpixel separators
+  ctx.strokeStyle='rgba(255,255,255,.06)';
+  for(let i=0;i<3;i++) ctx.strokeRect(COLX[i]*W,LY.Cathode.y,SUBW,H-28);
+
+  // particles
+  particles.forEach(p=>{
+    ctx.beginPath();ctx.arc(p.x,p.y,2.4,0,7);
+    ctx.fillStyle = p.type==='h'? '#ff6b5e':'#5ec8ff'; ctx.fill();
+    if(p.leak){ ctx.beginPath();ctx.arc(p.x,p.y,4.2,0,7);
+      ctx.strokeStyle=p.type==='h'?'rgba(255,107,94,.4)':'rgba(94,200,255,.4)';ctx.stroke();}
+  });
+  // glow flashes
+  for(let i=glows.length-1;i>=0;i--){const g=glows[i];g.r+=1.6;g.a-=0.04;
+    if(g.a<=0){glows.splice(i,1);continue;}
+    ctx.beginPath();ctx.arc(g.x,g.y,g.r,0,7);
+    ctx.fillStyle=`rgba(255,226,122,${g.a})`;ctx.fill();}
+
+  // per-subpixel luminance readout on EML
+  if(curRes){
+    const mx=Math.max(1e-9,...curRes.cols.map(c=>c.lum));
+    for(let i=0;i<3;i++){
+      const lum=curRes.cols[i].lum, frac=lum/mx;
+      const x=COLX[i]*W+SUBW/2;
+      ctx.fillStyle=COL[i].color;ctx.globalAlpha=0.12+0.55*frac;
+      ctx.fillRect(COLX[i]*W,LY.EML.y,SUBW,LY.EML.h);ctx.globalAlpha=1;
+      ctx.fillStyle='#fff';ctx.font='bold 12px sans-serif';ctx.textAlign='center';
+      ctx.fillText((frac*100|0)+'%', x, LY.EML.y+LY.EML.h/2+4);
+    }
+  }
+}
+function shade(hex,a){const n=parseInt(hex.slice(1),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`;}
+
+let flashHold=true;
+function loop(){
+  // emit glows from recombining particles
+  particles.forEach(p=>{ if(p.glow>0){glows.push({x:p.x,y:p.y,r:2,a:.7});p.glow=0;} });
+  particles=particles.filter(p=>!p.dead);
+  particles.forEach(step);
+  // top up
+  if(particles.length<220 && (S.meas==='gray'|| flashHold)) topUp();
+  draw();
+  requestAnimationFrame(loop);
+}
+function topUp(){
+  const dv=S.meas==='ffr'?[1,1,1]:driveOf(S.drive);
+  const cols=solve(dv,S.gray);
+  const maxI=Math.max(1e-9,...cols.map(c=>c.Id+c.leak));
+  for(let i=0;i<3;i++){ if(!dv[i])continue;
+    const c=cols[i],leakP=c.leak/(c.Id+c.leak+1e-12);
+    const n=Math.round(1+4*(c.Id+c.leak)/maxI);
+    for(let k=0;k<n;k++){particles.push(mkP('h',i,leakP));particles.push(mkP('e',i,leakP));}
+  }
+}
+
+/* ============================================================
+   UI
+   ============================================================ */
+const LAYERS=['HIL','HTL','EML','ETL','EIL'];
+const LNAME={HIL:'HIL (홀주입)',HTL:'HTL (홀수송·공통)',EML:'EML (발광)',ETL:'ETL (전자수송·공통)',EIL:'EIL (전자주입)'};
+function buildSliders(){
+  const box=document.getElementById('sliders');box.innerHTML='';
+  LAYERS.forEach(L=>{
+    const row=document.createElement('div');row.className='row';
+    const q=S.model==='quant';
+    const min=q?-9:0, max=q?-3:1, step=q?0.05:0.01;
+    const v= q? Math.log10(S.sigma[L]) : S.conc[L];
+    row.innerHTML=`<label>${LNAME[L]}</label>
+      <input type="range" min="${min}" max="${max}" step="${step}" value="${v}" data-l="${L}">
+      <span class="val" id="v_${L}"></span>`;
+    box.appendChild(row);
+    row.querySelector('input').addEventListener('input',e=>{
+      const val=parseFloat(e.target.value);
+      if(q) S.sigma[L]=Math.pow(10,val); else S.conc[L]=val;
+      refresh();
+    });
+  });
+  syncSliderVals();
+}
+function syncSliderVals(){
+  LAYERS.forEach(L=>{
+    const el=document.getElementById('v_'+L);
+    el.textContent = S.model==='quant'
+      ? S.sigma[L].toExponential(1)+' S/cm'
+      : Math.round(S.conc[L]*100)+' %';
+  });
+}
+
+function refresh(){
+  document.getElementById('grayVal').textContent=Math.round(S.gray*100)+' %';
+  spawnParticles();
+  renderResults();
+  renderMech();
+}
+
+function renderResults(){
+  const t=document.getElementById('resTitle'), b=document.getElementById('resBody');
+  if(S.meas==='ffr'){
+    const f=computeFFR(S.gray);
+    t.textContent='FFR 측정 결과 (BLACK → WHITE, 1프레임 도달률)';
+    const cls=f.pct>97?'ok':f.pct>80?'warn':'bad';
+    const tag=f.pct>97?'정상':f.pct>80?'지연 주의':'FFR 불량';
+    b.innerHTML=`
+      <div class="grid2">
+        <div><div class="big" style="color:${cls==='ok'?'#56d98b':cls==='warn'?'#e3b341':'#ff7b86'}">
+          ${f.pct.toFixed(1)}<span class="unit"> %</span></div>
+          <small class="k">1프레임(${(f.tframe*1000).toFixed(1)} ms) 후 White 도달률
+          <span class="pill ${cls}">${tag}</span></small></div>
+        <div><div class="big">${fmtTau(f.tau)}</div>
+          <small class="k">충전 시정수 τ (= C·ΔV / I)</small></div>
+      </div>
+      <canvas id="ffrChart" width="420" height="150" style="margin-top:10px;background:#06090f"></canvas>
+      <div class="hint">곡선: 시간에 따른 휘도 상승. 점선 = 1프레임 시점. τ가 프레임시간보다 크면 흰색이 한 프레임에 100%에 도달하지 못합니다.</div>`;
+    drawFFR(f);
+  } else {
+    const c=computeCrush(S.gray);
+    t.textContent='Gray Crushing 측정 결과 (각 색 단독 점등 / 누설 영향)';
+    let rows='';
+    ['R','G','B'].forEach((nm,i)=>{
+      const r=c.ratio[i], cls=r>97?'ok':r>85?'warn':'bad';
+      rows+=`<tr><td><span class="dot" style="background:${COL[i].color}"></span>${nm}</td>
+        <td>${c.ideal[i].toExponential(2)}</td>
+        <td>${c.real[i].toExponential(2)}</td>
+        <td><span class="pill ${cls}">${r.toFixed(1)} %</span></td></tr>`;
+    });
+    b.innerHTML=`
+      <table><tr><th>색</th><th>이상(누설無)</th><th>실제</th><th>휘도비 (실제/이상)</th></tr>${rows}</table>
+      <canvas id="crChart" width="420" height="140" style="margin-top:10px;background:#06090f"></canvas>
+      <div class="hint">휘도비 100% = 누설 없음. Lateral leakage가 크면 해당 색 OLED로 갈 전류가 옆(이웃) 화소로 새어 휘도비가 떨어지고(=Gray Crushing), 이웃 화소가 의도치 않게 약하게 켜집니다.</div>`;
+    drawCrush(c);
+  }
+}
+function fmtTau(s){ if(s>=1)return s.toFixed(2)+' s'; if(s>=1e-3)return (s*1e3).toFixed(2)+' ms';
+  if(s>=1e-6)return (s*1e6).toFixed(2)+' µs'; return (s*1e9).toFixed(1)+' ns';}
+
+function drawFFR(f){
+  const c=document.getElementById('ffrChart');if(!c)return;const g=c.getContext('2d');
+  const W=c.width,H=c.height;g.clearRect(0,0,W,H);
+  const Tmax=Math.max(f.tframe*3, f.tau*3);
+  g.strokeStyle='#243042';g.beginPath();g.moveTo(30,H-20);g.lineTo(W-8,H-20);g.moveTo(30,10);g.lineTo(30,H-20);g.stroke();
+  // target 100
+  g.strokeStyle='#2f3a4a';g.setLineDash([3,3]);g.beginPath();g.moveTo(30,18);g.lineTo(W-8,18);g.stroke();g.setLineDash([]);
+  // curve
+  g.strokeStyle='#58a6ff';g.lineWidth=2;g.beginPath();
+  for(let px=0;px<=W-38;px++){const tt=Tmax*px/(W-38);const y=(1-Math.exp(-tt/Math.max(f.tau,1e-12)));
+    const Y=(H-20)-(H-38)*y;const X=30+px;px?g.lineTo(X,Y):g.moveTo(X,Y);}
+  g.stroke();g.lineWidth=1;
+  // frame line
+  const fx=30+(W-38)*(f.tframe/Tmax);
+  g.strokeStyle='#e3b341';g.setLineDash([4,4]);g.beginPath();g.moveTo(fx,10);g.lineTo(fx,H-20);g.stroke();g.setLineDash([]);
+  g.fillStyle='#9aa7b4';g.font='10px sans-serif';g.fillText('1 frame',fx-14,H-6);
+  g.fillText('100%',2,22);g.fillText('휘도',2,40);
+}
+function drawCrush(c){
+  const cv2=document.getElementById('crChart');if(!cv2)return;const g=cv2.getContext('2d');
+  const W=cv2.width,H=cv2.height;g.clearRect(0,0,W,H);
+  g.strokeStyle='#2f3a4a';g.setLineDash([3,3]);const y100=20;
+  g.beginPath();g.moveTo(30,y100);g.lineTo(W-8,y100);g.stroke();g.setLineDash([]);
+  g.fillStyle='#9aa7b4';g.font='10px sans-serif';g.fillText('100%',2,y100+3);
+  const bw=70,gap=50;
+  ['R','G','B'].forEach((nm,i)=>{
+    const r=Math.min(c.ratio[i],115);const x=60+i*(bw+gap);
+    const h=(H-40)*(r/115);
+    g.fillStyle=COL[i].color;g.fillRect(x,(H-20)-h,bw,h);
+    g.fillStyle='#fff';g.font='bold 12px sans-serif';g.textAlign='center';
+    g.fillText(c.ratio[i].toFixed(0)+'%',x+bw/2,(H-20)-h-5);
+    g.fillStyle='#9aa7b4';g.fillText(nm,x+bw/2,H-6);g.textAlign='left';
+  });
+}
+
+function renderMech(){
+  const el=document.getElementById('mechNote');
+  const leak = curRes? curRes.leakAvg : 0;
+  const lvl = leak>0.35?'큼':leak>0.15?'중간':'작음';
+  let txt='';
+  if(S.meas==='ffr'){
+    txt=`<b>메커니즘 (FFR)</b> — 흑→백 전환 시, 화소 용량을 목표 휘도까지 충전해야 합니다.
+      <b>HTL/ETL/EML 전도도가 낮으면</b> 주입 전류 I가 작아 충전 시정수 τ=C·ΔV/I 가 커지고,
+      특히 <b>저계조(낮은 I)</b>에서 한 프레임 안에 White 100%에 도달하지 못해 FFR이 떨어집니다.
+      전도도를 올리면 전자·홀이 빠르게 EML로 도달해(입자 속도↑) 휘도가 즉시 차오릅니다.`;
+  } else {
+    txt=`<b>메커니즘 (Gray Crushing)</b> — 현재 lateral leakage: <b>${lvl}</b>.
+      <b>공통층(HTL·ETL)의 전도도가 높으면</b> 이웃 화소의 H/E 전위를 끌어올려, 목표 색 EML로 가야 할
+      전류가 옆 화소로 새어(점선 ↔) 거기서 재결합합니다. 그 결과 해당 색 휘도비가 100% 아래로 떨어지고
+      (저계조 색틀어짐·Gray Crushing), 꺼야 할 이웃 화소가 약하게 켜집니다.
+      공통층 전도도를 낮추면 누설이 줄어 휘도비가 회복됩니다.`;
+  }
+  el.innerHTML=txt;
+}
+
+/* ---------- events ---------- */
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); S.meas=t.dataset.meas;
+  document.getElementById('ffrCtl').style.display = S.meas==='ffr'?'block':'none';
+  document.getElementById('grayCtl').style.display = S.meas==='gray'?'block':'none';
+  flashHold = true;
+  refresh();
+}));
+document.getElementById('modelSeg').addEventListener('click',e=>{
+  if(!e.target.dataset.model)return;
+  document.querySelectorAll('#modelSeg button').forEach(b=>b.classList.remove('active'));
+  e.target.classList.add('active'); S.model=e.target.dataset.model;
+  document.getElementById('modelHint').textContent = S.model==='quant'
+    ? '정량 모델: 1차원 저항-다이오드 네트워크(단위 S/cm). 절대값은 근사이며 경향 해석용.'
+    : '개념 모델: 0~100% 정규화된 직관 모델. 빠르고 부드럽게 경향을 보여줍니다.';
+  buildSliders(); refresh();
+});
+document.getElementById('driveSeg').addEventListener('click',e=>{
+  if(!e.target.dataset.drive)return;
+  document.querySelectorAll('#driveSeg button').forEach(b=>b.classList.remove('active'));
+  e.target.classList.add('active'); S.drive=e.target.dataset.drive; refresh();
+});
+document.getElementById('hzSeg').addEventListener('click',e=>{
+  if(!e.target.dataset.hz)return;
+  document.querySelectorAll('#hzSeg button').forEach(b=>b.classList.remove('active'));
+  e.target.classList.add('active'); S.hz=+e.target.dataset.hz; refresh();
+});
+document.getElementById('gray').addEventListener('input',e=>{ S.gray=e.target.value/100; refresh(); });
+document.getElementById('flashBtn').addEventListener('click',()=>{
+  flash.active=true; flashHold=false; particles=[]; glows.length=0;
+  setTimeout(()=>{ flashHold=true; topUp(); },120);
+  setTimeout(()=>{ flash.active=false; },1/S.hz*1000+60);
+});
+
+/* init */
+document.getElementById('modelHint').textContent='개념 모델: 0~100% 정규화된 직관 모델. 빠르고 부드럽게 경향을 보여줍니다.';
+buildSliders(); refresh(); loop();
+</script>
+</body>
+</html>
