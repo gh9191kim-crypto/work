@@ -70,7 +70,7 @@
       <span><span class="dot" style="background:var(--hole)"></span>홀(Hole) — Anode에서 주입</span>
       <span><span class="dot" style="background:var(--elec)"></span>전자(Electron) — Cathode에서 주입</span>
       <span><span class="dot" style="background:#ffe27a"></span>재결합 발광(Recombination)</span>
-      <span>↔ 점선 = 공통층 Lateral Leakage</span>
+      <span>→ 가로 화살표·수평 이동 = 공통층 측면(Lateral) 누설 전류</span>
     </div>
     <div class="note" id="mechNote"></div>
   </div>
@@ -155,6 +155,8 @@ const GAP   = 2.0e-3;    // cm    lateral path length between neighbor nodes
 const CPIX = 1.0e-9;     // F   effective lumped node capacitance (storage+parasitic)
 const LEAK_K = 300;      // lateral leakage coupling (calibrated, dimensionless)
 const KJ = 2e-5;         // EML current coefficient (SCLC-like, A/V^2)
+const K_LAT_Q = 8e-6, P_LAT = 1.4;  // FFR lateral-charging term (quant): tauL = K*(common/ref)^P
+const K_LAT_C = 0.03;    // FFR lateral-charging term (concept): tauL = K*common^4
 
 /* per-color EML character: Vk = turn-on knee, emlScale/eff = relative output.
    Differences across R/G/B make leakage redistribute current asymmetrically (realistic crushing). */
@@ -287,17 +289,23 @@ function driveOf(sel){ return sel==='W'?[1,1,1]:[sel==='R'?1:0,sel==='G'?1:0,sel
 function computeFFR(gray){
   const cols=solve([1,1,1],gray);
   const Itot=cols.reduce((s,c)=>s+c.Id,0)/3;
-  let tau;
+  let tauV, tauL;
   if(S.model==='quant'){
     const Vsw = 2.2+gray*3.4;
-    tau = CPIX*Vsw/Math.max(Itot,1e-13);          // s, current-limited charging
+    tauV = CPIX*Vsw/Math.max(Itot,1e-13);          // ① vertical: current-limited charging
+    const cn = (S.sigma.HTL+S.sigma.ETL)/2e-6;     // common-layer σ vs reference
+    tauL = K_LAT_Q*Math.pow(cn,P_LAT);             // ② lateral: charging the conductive common plane
   }else{
     const a=seriesConc();
-    tau = 0.00018/Math.max(a*gray,1e-3);          // s (normalized)
+    tauV = 0.00018/Math.max(a*gray,1e-3);          // ① vertical (normalized)
+    const common=(S.conc.HTL+S.conc.ETL)/2;
+    tauL = K_LAT_C*Math.pow(common,4);             // ② lateral
   }
+  const tau=tauV+tauL;
   const tframe=1/S.hz;
   const pct=(1-Math.exp(-tframe/Math.max(tau,1e-9)))*100;
-  return {tau, pct, tframe, Itot, cols};
+  const leakShare = tauL/(tauV+tauL);              // 0..1, how much the lateral effect dominates
+  return {tau, tauV, tauL, leakShare, pct, tframe, Itot, cols};
 }
 
 /* ---------- Gray Crushing ---------- */
@@ -357,45 +365,44 @@ function spawnParticles(){
   particles=[];
   const dv = S.meas==='ffr'? [1,1,1] : driveOf(S.drive);
   const cols = solve(dv, S.gray);
+  const ffrLeak = S.meas==='ffr'? computeFFR(S.gray).leakShare : null;  // FFR: lateral dominance
   const maxI = Math.max(1e-9, ...cols.map(c=>c.Id+c.leak));
   for(let i=0;i<3;i++){
     if(!dv[i] && S.meas==='gray') continue;
     const c=cols[i];
     const n = Math.round(6+38*(c.Id+c.leak)/maxI);
-    const leakP = (c.leak)/(c.Id+c.leak+1e-12);
+    const leakP = ffrLeak!=null? ffrLeak : (c.leak)/(c.Id+c.leak+1e-12);
     for(let p=0;p<n;p++){
       particles.push(mkP('h',i,leakP));
       particles.push(mkP('e',i,leakP));
     }
   }
-  curRes={cols,dv,leakAvg: cols.reduce((s,c)=>s+c.leak/(c.Id+c.leak+1e-12),0)/3};
+  const colLeakAvg = cols.reduce((s,c)=>s+c.leak/(c.Id+c.leak+1e-12),0)/3;
+  curRes={cols,dv,leakAvg: ffrLeak!=null? ffrLeak : colLeakAvg};
 }
 function mkP(type,col,leakP){
-  const x = (COLX[col]*W)+SUBW*(0.2+0.6*Math.random());
+  const leak = Math.random()<leakP;
+  let tgt=col;
+  if(leak){ const o=[col-1,col+1].filter(c=>c>=0&&c<3); tgt=o[(Math.random()*o.length)|0]; }
+  const x = (COLX[col]*W)+SUBW*(0.25+0.5*Math.random());
   const y = type==='h'? LY.Anode.y+10 : LY.Cathode.y+8;
-  return {type,col,x,y,vy:type==='h'?-1:1,leak:Math.random()<leakP, drift:(Math.random()<0.5?-1:1), spd:0.6+Math.random()*0.9, dead:false, glow:0};
+  return {type,col,tgtCol:tgt,x,y,vy:type==='h'?-1:1,leak:leak&&tgt!==col, spd:0.6+Math.random()*0.9, dead:false, glow:0};
 }
 
 function step(p){
   const emlY=LY.EML.y, emlB=LY.EML.y+LY.EML.h;
-  const htlY=LY.HTL.y, htlB=LY.HTL.y+LY.HTL.h;
-  const etlY=LY.ETL.y, etlB=LY.ETL.y+LY.ETL.h;
-  p.y += p.vy*p.spd*(S.model==='quant'?1:1.1);
-  // lateral leakage drift inside common transport layers
-  if(p.leak){
-    const inHTL = p.type==='h' && p.y<htlB && p.y>htlY-30;
-    const inETL = p.type==='e' && p.y>etlY && p.y<etlB+30;
-    if(inHTL||inETL){
-      const tgt = p.col + p.drift;
-      if(tgt>=0&&tgt<3){ p.x += p.drift*1.4;
-        if(Math.abs(p.x-((COLX[tgt]*W)+SUBW*0.5))<SUBW*0.45 && Math.random()<0.04) p.col=tgt;
-      } else p.leak=false;
-    }
+  // common transport layer mid-line where lateral (horizontal) flow happens
+  const bandMid = p.type==='h'? LY.HTL.y+LY.HTL.h*0.5 : LY.ETL.y+LY.ETL.h*0.5;
+  if(p.leak && p.tgtCol!==p.col && Math.abs(p.y-bandMid)<14){
+    // dwell in the common layer and drift HORIZONTALLY toward the neighbor subpixel
+    const tgtX=(COLX[p.tgtCol]*W)+SUBW*0.5;
+    p.x += Math.sign(tgtX-p.x)*5;
+    if(Math.abs(p.x-tgtX)<4){ p.col=p.tgtCol; p.leak=false; }  // arrived -> resume vertical
+  } else {
+    p.y += p.vy*p.spd*(S.model==='quant'?1:1.1);               // vertical drift
   }
-  // recombination in EML
-  if(p.y>emlY && p.y<emlB){
-    if(Math.random()<0.06){ p.glow=1; p.dead=true; }
-  }
+  // recombination (light) in EML
+  if(p.y>emlY && p.y<emlB && Math.random()<0.06){ p.glow=1; p.dead=true; }
   if(p.y<6||p.y>H-6) p.dead=true;
 }
 
@@ -433,6 +440,12 @@ function draw(){
     ctx.beginPath();ctx.arc(g.x,g.y,g.r,0,7);
     ctx.fillStyle=`rgba(255,226,122,${g.a})`;ctx.fill();}
 
+  // horizontal (lateral) leakage flow arrows in the common transport layers
+  if(curRes){
+    drawLatArrows(LY.HTL.y+LY.HTL.h*0.5,'#ff6b5e',curRes.leakAvg); // holes in HTL
+    drawLatArrows(LY.ETL.y+LY.ETL.h*0.5,'#5ec8ff',curRes.leakAvg); // electrons in ETL
+  }
+
   // per-subpixel luminance readout on EML
   if(curRes){
     const mx=Math.max(1e-9,...curRes.cols.map(c=>c.lum));
@@ -447,6 +460,17 @@ function draw(){
   }
 }
 function shade(hex,a){const n=parseInt(hex.slice(1),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`;}
+function arrowHead(x,y,dir){ ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-dir*7,y-4.5);ctx.lineTo(x-dir*7,y+4.5);ctx.closePath();ctx.fill(); }
+function drawLatArrows(y,color,strength){
+  const a=Math.min(0.9, strength*2.4); if(a<0.06) return;       // only show when leakage is meaningful
+  ctx.globalAlpha=a; ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=2.5;
+  [0,1].forEach(gi=>{                                            // two inter-subpixel gaps
+    const x0=(COLX[gi]+0.20)*W+4, x1=COLX[gi+1]*W-4;
+    ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke();
+    arrowHead(x1,y,1); arrowHead(x0,y,-1);                       // double-headed (spreads both ways)
+  });
+  ctx.globalAlpha=1; ctx.lineWidth=1;
+}
 
 let flashHold=true;
 function loop(){
@@ -524,10 +548,16 @@ function renderResults(){
           <small class="k">1프레임(${(f.tframe*1000).toFixed(1)} ms) 후 White 도달률
           <span class="pill ${cls}">${tag}</span></small></div>
         <div><div class="big">${fmtTau(f.tau)}</div>
-          <small class="k">충전 시정수 τ (= C·ΔV / I)</small></div>
+          <small class="k">총 충전 시정수 τ = τ수직 + τ측면</small></div>
       </div>
+      <table style="margin-top:8px">
+        <tr><th>τ 성분</th><th>값</th><th>비중</th></tr>
+        <tr><td>① 수직 충전 (σ↑ → ↓, FFR 개선)</td><td>${fmtTau(f.tauV)}</td><td>${((1-f.leakShare)*100).toFixed(0)} %</td></tr>
+        <tr><td>② 측면 누설 (σ↑ → ↑, FFR 악화)</td><td>${fmtTau(f.tauL)}</td>
+          <td><span class="pill ${f.leakShare>0.5?'bad':f.leakShare>0.25?'warn':'ok'}">${(f.leakShare*100).toFixed(0)} %</span></td></tr>
+      </table>
       <canvas id="ffrChart" width="420" height="150" style="margin-top:10px;background:#06090f"></canvas>
-      <div class="hint">곡선: 시간에 따른 휘도 상승. 점선 = 1프레임 시점. τ가 프레임시간보다 크면 흰색이 한 프레임에 100%에 도달하지 못합니다.</div>`;
+      <div class="hint">공통층(HTL·ETL) σ를 올리면 ①(수직)이 줄어 FFR이 좋아지다가, 어느 지점부터 ②(측면 누설)가 커져 다시 나빠집니다 → <b>최적 σ가 존재</b>. 곡선 점선 = 1프레임 시점.</div>`;
     drawFFR(f);
   } else {
     const c=computeCrush(S.gray);
@@ -591,10 +621,14 @@ function renderMech(){
   const lvl = leak>0.35?'큼':leak>0.15?'중간':'작음';
   let txt='';
   if(S.meas==='ffr'){
-    txt=`<b>메커니즘 (FFR)</b> — 흑→백 전환 시, 화소 용량을 목표 휘도까지 충전해야 합니다.
-      <b>HTL/ETL/EML 전도도가 낮으면</b> 주입 전류 I가 작아 충전 시정수 τ=C·ΔV/I 가 커지고,
-      특히 <b>저계조(낮은 I)</b>에서 한 프레임 안에 White 100%에 도달하지 못해 FFR이 떨어집니다.
-      전도도를 올리면 전자·홀이 빠르게 EML로 도달해(입자 속도↑) 휘도가 즉시 차오릅니다.`;
+    const f=computeFFR(S.gray); const dom = f.leakShare>0.5?'② 측면 누설이 지배적':'① 수직 충전이 지배적';
+    txt=`<b>메커니즘 (FFR) — 경쟁하는 두 효과</b><br>
+      <b>① 수직 충전(σ↑ → FFR↑)</b>: HTL/ETL/EML σ를 올리면 직렬저항↓ → 주입전류 I↑ → τ수직=C·ΔV/I 감소 →
+      전자·홀이 EML로 빨리 도달해 휘도가 즉시 차오름.<br>
+      <b>② 측면 누설(σ↑ → FFR↓)</b>: HTL·ETL은 R/G/B <b>공통층</b>이라, σ가 높으면 충전 전류가 가로(수평)로 새어
+      이웃·공통평면 기생용량을 함께 충전 → τ측면 증가 → 첫 프레임에 100% 못 올라옴.<br>
+      현재 상태: <b>${dom}</b>. ⇒ 두 효과가 맞물려 <b>FFR을 최대로 하는 최적 σ</b>가 존재합니다.
+      저계조일수록 전류가 작아 ②의 영향이 더 커집니다.`;
   } else {
     txt=`<b>메커니즘 (Gray Crushing)</b> — 현재 lateral leakage: <b>${lvl}</b>.
       <b>공통층(HTL·ETL)의 전도도가 높으면</b> 이웃 화소의 H/E 전위를 끌어올려, 목표 색 EML로 가야 할
