@@ -54,6 +54,17 @@ RGB OLED의 각 layer(HIL·HTL·EML·ETL·EIL)의 **전도도(conductivity / 저
 - **EML·수송층 σ ↓** + **저계조** → 전류 ↓ → τ ↑ → FFR ↓ (한 프레임에 흰색 못 올라옴).
 - **주사율 ↑(120/240Hz)** → 프레임시간 ↓ → FFR 더 어려워짐.
 
-## 배포(공유)
-GitHub Pages 사용 시: 저장소 **Settings → Pages** 에서 브랜치와 루트(`/index.html`)를 지정하면
-`https://<계정>.github.io/work/` 형태의 공유 링크가 생성됩니다.
+## 배포(공유) — Vercel
+이 저장소는 빌드가 필요 없는 **정적 사이트**(루트의 `index.html`)라 Vercel에 바로 연결됩니다.
+
+**최초 1회 연결**
+1. https://vercel.com → **Add New… → Project**
+2. **Import Git Repository** 에서 `gh9191kim-crypto/work` 선택
+3. Framework Preset: **Other**(정적) / Root Directory: `./` / Build·Output 설정 비움 → **Deploy**
+4. 배포 후 `https://work-<해시>.vercel.app` (또는 지정한 도메인) 링크로 누구나 접속 가능
+
+**브랜치**: 기본 배포는 Production 브랜치(보통 `main`) 기준입니다. 현재 작업은
+`claude/oled-conductivity-sim-25dc71` 브랜치에 있으므로, 이 브랜치를 Production으로 지정하거나
+`main`에 병합하면 자동 배포됩니다. 연결 후에는 **push할 때마다 자동 재배포**됩니다.
+
+> `vercel.json` 은 `cleanUrls`(확장자 없는 URL)만 설정한 정적 사이트 구성입니다.
