@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Eye Care Switchable + Privacy — LVA(시야각) 시뮬레이터</title>
+<style>
+  :root{
+    --bg:#0e1117; --panel:#161b22; --line:#30363d; --txt:#e6edf3; --muted:#8b949e;
+    --r:#f97583; --g:#56d364; --b:#58a6ff; --sky:#79c0ff; --oc:#3fb950; --bm:#c9d1d9;
+    --warn:#f0883e; --ok:#56d364;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',system-ui,'Apple SD Gothic Neo',sans-serif;background:var(--bg);color:var(--txt);font-size:13px}
+  header{padding:10px 16px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+  header h1{font-size:15px;margin:0;font-weight:600}
+  .badge{background:#21262d;border:1px solid var(--line);border-radius:6px;padding:3px 8px;font-size:11px;color:var(--muted)}
+  main{display:grid;grid-template-columns:300px 1fr 360px;gap:0;height:calc(100vh - 47px)}
+  .col{overflow:auto;padding:12px}
+  .col.left{border-right:1px solid var(--line)}
+  .col.right{border-left:1px solid var(--line)}
+  .group{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px}
+  .group h2{font-size:12px;margin:0 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  label.row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0;font-size:12px}
+  label.row span.val{color:var(--b);font-variant-numeric:tabular-nums;min-width:54px;text-align:right}
+  input[type=range]{flex:1;accent-color:var(--b)}
+  select,input[type=number]{background:#0d1117;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-size:12px}
+  .toggle{display:flex;align-items:center;gap:6px;margin:6px 0;cursor:pointer}
+  canvas{background:#0d1117;border:1px solid var(--line);border-radius:8px;display:block;width:100%}
+  .stat{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #21262d;font-variant-numeric:tabular-nums}
+  .stat b{color:var(--b)}
+  .pill{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px}
+  .pill.ok{background:rgba(86,211,100,.15);color:var(--ok)}
+  .pill.bad{background:rgba(248,117,131,.15);color:var(--r)}
+  table{width:100%;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums}
+  th,td{border:1px solid var(--line);padding:4px 6px;text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  th{background:#21262d;color:var(--muted);font-weight:500}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-top:6px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}
+  .note{font-size:11px;color:var(--muted);line-height:1.5}
+  button{background:#21262d;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px}
+  button:hover{border-color:var(--b)}
+  button.primary{background:var(--b);color:#0d1117;border-color:var(--b);font-weight:600}
+  .sub{font-size:10px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Eye Care Switchable Display + Privacy — LVA 시야각 시뮬레이터</h1>
+  <span class="badge" id="ppiBadge">499 PPI</span>
+  <span class="badge" id="privPpiBadge">Privacy 353 PPI</span>
+  <span class="badge">Pentile RGBG · Diamond · 원형 Anode</span>
+</header>
+<main>
+  <!-- ===================== LEFT: CONTROLS ===================== -->
+  <div class="col left">
+    <div class="group">
+      <h2>기본 사양</h2>
+      <label class="row">해상도(PPI)
+        <select id="ppi">
+          <option value="499">499</option>
+          <option value="566">566</option>
+          <option value="610">610</option>
+        </select>
+      </label>
+      <label class="toggle"><input type="checkbox" id="skyOn"> Eye Care: Sky Blue 추가(있음)</label>
+      <label class="toggle"><input type="checkbox" id="showRays" checked> 광선(ray) 표시</label>
+      <label class="row">분석 대상 Subpixel
+        <select id="target">
+          <option value="G">Normal Green</option>
+          <option value="B">Privacy Blue</option>
+          <option value="R">Red</option>
+          <option value="SkyB">Sky Blue</option>
+        </select>
+      </label>
+      <label class="row">손해 판정 임계 (%)
+        <span class="val" id="thrV">95</span></label>
+      <input type="range" id="thr" min="50" max="99" value="95" step="1">
+    </div>
+
+    <div class="group">
+      <h2>Anode 지름 (원형, µm)</h2>
+      <label class="row">Blue <span class="val" id="dBV">15.20</span></label>
+      <input type="range" id="dB" min="8" max="20" value="15.2" step="0.1">
+      <label class="row">Green <span class="val" id="dGV">13.44</span></label>
+      <input type="range" id="dG" min="8" max="20" value="13.44" step="0.1">
+      <label class="row">Red <span class="val" id="dRV">14.60</span></label>
+      <input type="range" id="dR" min="8" max="20" value="14.6" step="0.1">
+      <label class="row">Sky Blue <span class="val" id="dSV">15.20</span></label>
+      <input type="range" id="dS" min="8" max="20" value="15.2" step="0.1">
+      <div class="sub">※ Red 14.6µm은 자료 미제공으로 추정값(Blue&gt;Red&gt;Green).</div>
+    </div>
+
+    <div class="group">
+      <h2>PDL Gap (µm, 499PPI 기준 · 타 PPI는 자동 스케일)</h2>
+      <label class="row">Blue ↔ Green <span class="val" id="gBGV">21.67</span></label>
+      <input type="range" id="gBG" min="10" max="35" value="21.67" step="0.01">
+      <label class="row">Red ↔ Green <span class="val" id="gRGV">22.56</span></label>
+      <input type="range" id="gRG" min="10" max="35" value="22.56" step="0.01">
+      <div class="sub">Sky↔Green 은 Blue↔Green 값과 동일 적용.</div>
+    </div>
+
+    <div class="group">
+      <h2>BM 스택업 (µm, z=0=Anode면)</h2>
+      <label class="row">BM1 bottom (Anode+) <span class="val" id="b1zV">9.50</span></label>
+      <input type="range" id="b1z" min="3" max="15" value="9.5" step="0.1">
+      <label class="row">BM1 두께 <span class="val" id="b1tV">4.30</span></label>
+      <input type="range" id="b1t" min="1" max="8" value="4.3" step="0.1">
+      <label class="row">BM2 gap (BM1.top+) <span class="val" id="b2gV">6.00</span></label>
+      <input type="range" id="b2g" min="1" max="12" value="6" step="0.1">
+      <label class="row">BM2 두께 <span class="val" id="b2tV">2.00</span></label>
+      <input type="range" id="b2t" min="0.5" max="6" value="2" step="0.1">
+      <label class="row">BM2 선폭 <span class="val" id="b2wV">6.00</span></label>
+      <input type="range" id="b2w" min="2" max="16" value="6" step="0.1">
+      <label class="row">BM3 gap (BM2.bottom+) <span class="val" id="b3gV">7.50</span></label>
+      <input type="range" id="b3g" min="3" max="14" value="7.5" step="0.1">
+      <label class="row">BM3 두께 <span class="val" id="b3tV">2.00</span></label>
+      <input type="range" id="b3t" min="0.5" max="6" value="2" step="0.1">
+      <label class="row">BM3 선폭 <span class="val" id="b3wV">6.00</span></label>
+      <input type="range" id="b3w" min="2" max="16" value="6" step="0.1">
+      <label class="row">OC 두께 (BM3.top+) <span class="val" id="ocV">2.50</span></label>
+      <input type="range" id="oc" min="0.5" max="8" value="2.5" step="0.1">
+      <label class="row">윈도우 n <span class="val" id="nWV">1.50</span></label>
+      <input type="range" id="nW" min="1.0" max="1.8" value="1.5" step="0.01">
+    </div>
+
+    <div class="group">
+      <h2>개선안</h2>
+      <div class="note">① 배열: R-R / G-G 등간격 유지, Blue계열만 비대칭 이동.</div>
+      <label class="row">① Blue계열 lateral shift <span class="val" id="shV">0.0</span></label>
+      <input type="range" id="sh" min="-8" max="8" value="0" step="0.1">
+      <div class="note" style="margin-top:8px">④ BM4 추가</div>
+      <label class="toggle"><input type="checkbox" id="b4on"> BM4 사용</label>
+      <label class="row">BM4 bottom (z) <span class="val" id="b4zV">24.00</span></label>
+      <input type="range" id="b4z" min="14" max="31" value="24" step="0.1">
+      <label class="row">BM4 두께 <span class="val" id="b4tV">2.00</span></label>
+      <input type="range" id="b4t" min="0.5" max="6" value="2" step="0.1">
+      <label class="row">BM4 선폭 <span class="val" id="b4wV">6.00</span></label>
+      <input type="range" id="b4w" min="2" max="16" value="6" step="0.1">
+      <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+        <button id="reset">기본값 복원</button>
+        <button id="autofix" class="primary">시야각 매칭 자동탐색</button>
+      </div>
+      <div class="sub" id="autofixMsg" style="margin-top:6px"></div>
+    </div>
+  </div>
+
+  <!-- ===================== CENTER: CROSS-SECTION ===================== -->
+  <div class="col center">
+    <div class="group">
+      <h2>단면도 (Cross-section, µm 스케일)</h2>
+      <canvas id="cs" height="430"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--r)"></i>Red</span>
+        <span><i style="background:var(--g)"></i>Green</span>
+        <span><i style="background:var(--b)"></i>Blue</span>
+        <span><i style="background:var(--sky)"></i>SkyBlue</span>
+        <span><i style="background:var(--bm)"></i>BM</span>
+        <span><i style="background:#1f6feb"></i>OC/Window</span>
+        <span><i style="background:#56d364"></i>통과광선</span>
+        <span><i style="background:#f85149"></i>차단광선</span>
+      </div>
+    </div>
+    <div class="group">
+      <h2>평면도 (Diamond Pentile Top-view)</h2>
+      <canvas id="tv" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- ===================== RIGHT: RESULTS ===================== -->
+  <div class="col right">
+    <div class="group">
+      <h2>휘도-각도 곡선 (공기 중 시야각)</h2>
+      <canvas id="chart" height="240"></canvas>
+      <div class="legend">
+        <span><i style="background:#58a6ff"></i>현재 대상</span>
+        <span><i style="background:#8b949e"></i>Normal Green 기준</span>
+        <span><i style="background:#f0883e"></i>임계선</span>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>핵심 결과</h2>
+      <div class="stat"><span>분석 대상</span><b id="rTarget">Normal Green</b></div>
+      <div class="stat"><span>손해 시작각 (±)</span><b id="rLoss">–</b></div>
+      <div class="stat"><span>반치각(50%)</span><b id="rHalf">–</b></div>
+      <div class="stat"><span>완전차단각(0%)</span><b id="rCut">–</b></div>
+      <div class="stat"><span>Normal Green 손해시작각</span><b id="rGref">–</b></div>
+      <div class="stat"><span>기준 대비 손해</span><span id="rVerdict">–</span></div>
+    </div>
+
+    <div class="group">
+      <h2>Sky Blue 유무 비교 (Normal Green 시야각)</h2>
+      <table id="skyTbl">
+        <tr><th>케이스</th><th>손해시작°</th><th>반치°</th><th>Δ손해</th></tr>
+      </table>
+      <div class="sub" id="skyMsg" style="margin-top:6px"></div>
+    </div>
+
+    <div class="group">
+      <h2>PPI별 요약 (현재 구조)</h2>
+      <table id="ppiTbl">
+        <tr><th>PPI</th><th>Privacy PPI</th><th>G 손해°</th><th>B 손해°</th></tr>
+      </table>
+    </div>
+
+    <div class="group">
+      <h2 style="color:var(--muted)">가정 / 식</h2>
+      <div class="note">
+        • Anode는 원형: 단면에서 발광폭=지름, 발광면 z=0.<br>
+        • BM은 PDL Gap 중앙에 선폭만큼의 불투명 bar로 모델링(BM1은 Gap 전체).<br>
+        • 광선이 모든 BM bar를 통과해 윈도우 상면 도달 시 출사. 윈도우→공기 Snell 굴절: sinθair=n·sinθint (n·sinθint&gt;1이면 전반사로 출사 불가).<br>
+        • 손해시작각 = 투과율이 임계% 아래로 내려가는 최소 |θair|.<br>
+        • Privacy 유효 PPI = PPI/√2 (면적 1/2 배치).
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+/* =========================================================================
+   Eye Care Switchable Display + Privacy — LVA(시야각) 기하광학 시뮬레이터
+   단일 파일. 모든 기하 계산은 µm 단위. z=0 = Anode 발광면.
+   ========================================================================= */
+
+const $ = id => document.getElementById(id);
+const DEG = 180/Math.PI;
+
+/* ---- 파라미터 상태 (슬라이더와 바인딩) ---- */
+const P = {};
+function readUI(){
+  P.ppi   = +$('ppi').value;
+  P.skyOn = $('skyOn').checked;
+  P.target= $('target').value;
+  P.thr   = +$('thr').value/100;
+  P.dB=+$('dB').value; P.dG=+$('dG').value; P.dR=+$('dR').value; P.dS=+$('dS').value;
+  P.gBG=+$('gBG').value; P.gRG=+$('gRG').value;
+  P.b1z=+$('b1z').value; P.b1t=+$('b1t').value;
+  P.b2g=+$('b2g').value; P.b2t=+$('b2t').value; P.b2w=+$('b2w').value;
+  P.b3g=+$('b3g').value; P.b3t=+$('b3t').value; P.b3w=+$('b3w').value;
+  P.oc=+$('oc').value;   P.nW=+$('nW').value;
+  P.sh=+$('sh').value;
+  P.b4on=$('b4on').checked; P.b4z=+$('b4z').value; P.b4t=+$('b4t').value; P.b4w=+$('b4w').value;
+  P.showRays=$('showRays').checked;
+  // value labels
+  const lab={dB:'dBV',dG:'dGV',dR:'dRV',dS:'dSV',gBG:'gBGV',gRG:'gRGV',
+    b1z:'b1zV',b1t:'b1tV',b2g:'b2gV',b2t:'b2tV',b2w:'b2wV',b3g:'b3gV',b3t:'b3tV',b3w:'b3wV',
+    oc:'ocV',nW:'nWV',sh:'shV',b4z:'b4zV',b4t:'b4tV',b4w:'b4wV',thr:null};
+  $('dBV').textContent=P.dB.toFixed(2); $('dGV').textContent=P.dG.toFixed(2);
+  $('dRV').textContent=P.dR.toFixed(2); $('dSV').textContent=P.dS.toFixed(2);
+  $('gBGV').textContent=P.gBG.toFixed(2); $('gRGV').textContent=P.gRG.toFixed(2);
+  $('b1zV').textContent=P.b1z.toFixed(2); $('b1tV').textContent=P.b1t.toFixed(2);
+  $('b2gV').textContent=P.b2g.toFixed(2); $('b2tV').textContent=P.b2t.toFixed(2); $('b2wV').textContent=P.b2w.toFixed(2);
+  $('b3gV').textContent=P.b3g.toFixed(2); $('b3tV').textContent=P.b3t.toFixed(2); $('b3wV').textContent=P.b3w.toFixed(2);
+  $('ocV').textContent=P.oc.toFixed(2); $('nWV').textContent=P.nW.toFixed(2);
+  $('shV').textContent=P.sh.toFixed(1);
+  $('b4zV').textContent=P.b4z.toFixed(2); $('b4tV').textContent=P.b4t.toFixed(2); $('b4wV').textContent=P.b4w.toFixed(2);
+  $('thrV').textContent=(P.thr*100).toFixed(0);
+}
+
+/* ---- 색상 ---- */
+const COL={R:'#f97583',G:'#56d364',B:'#58a6ff',SkyB:'#79c0ff'};
+const RAD = t => ({R:P.dR,G:P.dG,B:P.dB,SkyB:P.dS}[t])/2;  // 반지름
+
+/* ---- z 좌표 계산 ---- */
+function zLayers(){
+  const b1b=P.b1z, b1t=b1b+P.b1t;
+  const b2b=b1t+P.b2g, b2t=b2b+P.b2t;
+  const b3b=b2b+P.b3g, b3t=b3b+P.b3t;     // BM3 bottom = BM2 bottom + gap
+  const ocTop=b3t+P.oc;                    // 윈도우 상면(출사면)
+  return {b1b,b1t,b2b,b2t,b3b,b3t,ocTop,
+          b4b:P.b4z,b4t:P.b4z+P.b4t};
+}
+
+/* ---- PDL Gap 스케일 (499 기준 → 타 PPI) ---- */
+function scaledGap(g){ return g*(499/P.ppi); }
+function gapFor(a,b){
+  const set=new Set([a,b]);
+  // Green 과의 조합만 인접 가정
+  if(set.has('R')) return scaledGap(P.gRG);
+  return scaledGap(P.gBG);           // B-G, SkyB-G
+}
+
+/* ---- Subpixel 행 생성 ----
+   반복단위: Sky off  ->  R G B G
+             Sky on   ->  R G B G R G SkyB G   (Blue/SkyBlue 슬롯 교대)
+   양끝 이웃 확보 위해 충분히 길게 생성, 중앙 subpixel을 분석.        */
+function buildRow(skyOn){
+  const unit = skyOn ? ['R','G','B','G','R','G','SkyB','G'] : ['R','G','B','G'];
+  const seq=[]; for(let k=0;k<6;k++) seq.push(...unit);   // 충분히 길게
+  const sub=[];
+  let x=0;
+  for(let i=0;i<seq.length;i++){
+    const t=seq[i];
+    if(i===0){ sub.push({t,xc:x+RAD(t)}); x=x+2*RAD(t); continue; }
+    const prev=seq[i-1];
+    const gap=gapFor(prev,t);
+    const xc = sub[i-1].xc + RAD(prev) + gap + RAD(t);
+    sub.push({t,xc});
+    // 개선안① Blue계열 lateral shift (R-R,G-G 등간격 유지, blue계열만 이동)
+  }
+  if(P.sh!==0){
+    for(const s of sub){ if(s.t==='B'||s.t==='SkyB') s.xc+=P.sh; }
+  }
+  return sub;
+}
+
+/* ---- BM bar 생성 (인접 subpixel 사이 PDL 영역마다) ---- */
+function buildBars(sub){
+  const z=zLayers(); const bars=[];
+  for(let i=0;i<sub.length-1;i++){
+    const L=sub[i], Rr=sub[i+1];
+    const edgeL=L.xc+RAD(L.t), edgeR=Rr.xc-RAD(Rr.t);
+    if(edgeR<=edgeL) continue;              // 겹침 방지
+    const mid=(edgeL+edgeR)/2;
+    bars.push({xL:edgeL,xR:edgeR,zb:z.b1b,zt:z.b1t,layer:'BM1'});                 // BM1: gap 전체
+    bars.push({xL:mid-P.b2w/2,xR:mid+P.b2w/2,zb:z.b2b,zt:z.b2t,layer:'BM2'});     // BM2
+    bars.push({xL:mid-P.b3w/2,xR:mid+P.b3w/2,zb:z.b3b,zt:z.b3t,layer:'BM3'});     // BM3
+    if(P.b4on) bars.push({xL:mid-P.b4w/2,xR:mid+P.b4w/2,zb:z.b4b,zt:z.b4t,layer:'BM4'});
+  }
+  return bars;
+}
+
+/* ---- 광선-사각형 교차(차단) 판정 ----
+   광선: x(z)=x0+z*tanθ, z∈[0,zTop]. bar에 닿으면 차단. */
+function rayBlocked(x0, tan, bars, zTop){
+  for(const b of bars){
+    if(b.zb>=zTop) continue;
+    const zt=Math.min(b.zt,zTop);
+    const x1=x0+b.zb*tan, x2=x0+zt*tan;
+    const lo=Math.min(x1,x2), hi=Math.max(x1,x2);
+    if(hi>=b.xL && lo<=b.xR) return b;   // 겹침 → 차단
+  }
+  return null;
+}
+
+/* ---- 투과율(θ_internal) : 원형 anode 폭 샘플 평균 ---- */
+function transmittance(spx, thetaInt, bars, zTop){
+  const r=RAD(spx.t), N=21; let pass=0;
+  const tan=Math.tan(thetaInt);
+  for(let k=0;k<N;k++){
+    const x0=spx.xc - r + (2*r)*(k/(N-1));
+    if(!rayBlocked(x0,tan,bars,zTop)) pass++;
+  }
+  return pass/N;
+}
+
+/* ---- 내부각 → 공기각 (Snell). 불가능하면 null ---- */
+function toAir(thetaInt){
+  const s=P.nW*Math.sin(Math.abs(thetaInt));
+  if(s>1) return null;
+  return Math.asin(s)*Math.sign(thetaInt);
+}
+const critInt=()=>Math.asin(1/P.nW);   // 임계 내부각
+
+/* ---- 휘도-각도 곡선 계산 (양방향) ---- */
+function curveFor(spx, bars, zTop){
+  const pts=[]; const cI=critInt();
+  for(let ti=-cI*0.999; ti<=cI*0.999; ti+=cI/120){
+    const T=transmittance(spx,ti,bars,zTop);
+    const air=toAir(ti);
+    if(air!==null) pts.push({air:air*DEG, T, ti});
+  }
+  pts.sort((a,b)=>a.air-b.air);
+  return pts;
+}
+
+/* ---- 곡선에서 손해시작각 / 반치각 / 차단각 추출 ----
+   대칭이 아닐 수 있으므로 +측/-측 중 더 빨리 손해보는 쪽(작은 절대값) 사용 */
+function metrics(curve, thr){
+  function side(sign){
+    let loss=null,half=null,cut=null,prevOK=true;
+    const arr=curve.filter(p=>sign>0?p.air>=0:p.air<=0)
+                   .sort((a,b)=>Math.abs(a.air)-Math.abs(b.air));
+    for(const p of arr){
+      if(loss===null && p.T<thr) loss=Math.abs(p.air);
+      if(half===null && p.T<0.5) half=Math.abs(p.air);
+      if(cut===null && p.T<0.02) cut=Math.abs(p.air);
+    }
+    return {loss,half,cut};
+  }
+  const a=side(1), b=side(-1);
+  const pick=(x,y)=> (x==null?y : y==null?x : Math.min(x,y));
+  return {loss:pick(a.loss,b.loss), half:pick(a.half,b.half), cut:pick(a.cut,b.cut)};
+}
+
+/* ---- 중앙의 특정 타입 subpixel 선택 ---- */
+function centerSub(sub,type){
+  const mid=sub[Math.floor(sub.length/2)].xc;
+  let best=null,bd=1e9;
+  for(const s of sub){ if(s.t!==type) continue; const d=Math.abs(s.xc-mid); if(d<bd){bd=d;best=s;} }
+  return best || sub.find(s=>s.t===type);
+}
+
+/* ---- 전체 분석 (현재 UI 기준) ---- */
+function analyze(skyOn, type){
+  const sub=buildRow(skyOn);
+  const bars=buildBars(sub);
+  const z=zLayers();
+  const spx=centerSub(sub,type);
+  if(!spx) return null;
+  const curve=curveFor(spx,bars,z.ocTop);
+  const m=metrics(curve,P.thr);
+  return {sub,bars,z,spx,curve,m};
+}
+
+/* =================== 렌더링 =================== */
+function fitCanvas(c){ const w=c.parentElement.clientWidth-2; c.width=w; return c.getContext('2d'); }
+
+function drawCross(res){
+  const c=$('cs'), ctx=fitCanvas(c); const W=c.width,H=c.height;
+  ctx.clearRect(0,0,W,H);
+  const z=res.z, sub=res.sub, spx=res.spx;
+  // view window centered on target subpixel
+  const span=Math.max(120, 4*RAD(spx.t)+2*scaledGap(P.gBG)+40);
+  const x0=spx.xc-span/2, x1=spx.xc+span/2;
+  const zMax=z.ocTop+6;
+  const sx=W/(x1-x0), sz=(H-30)/zMax;
+  const X=x=>(x-x0)*sx, Z=zz=>H-20-zz*sz;
+  // OC/Window
+  ctx.fillStyle='rgba(31,111,235,.18)';
+  ctx.fillRect(0,Z(z.ocTop),W,Z(z.b3t)-Z(z.ocTop));
+  ctx.fillStyle='rgba(31,111,235,.30)';
+  ctx.fillRect(0,Z(z.ocTop+5),W,Z(z.ocTop)-Z(z.ocTop+5)); // window slab
+  ctx.fillStyle='#1f6feb'; ctx.font='10px sans-serif';
+  ctx.fillText('Window',6,Z(z.ocTop+5)+12); ctx.fillText('OC',6,Z(z.ocTop)-3);
+  // BM bars
+  for(const b of res.bars){
+    ctx.fillStyle = b.layer==='BM1'?'#8b949e': b.layer==='BM4'?'#d29922':'#c9d1d9';
+    ctx.fillRect(X(b.xL),Z(b.zt),X(b.xR)-X(b.xL),Z(b.zb)-Z(b.zt));
+  }
+  // Anodes (원형 -> 단면은 밑변 반원/막대로 표시)
+  for(const s of sub){
+    const r=RAD(s.t);
+    ctx.fillStyle=COL[s.t];
+    ctx.beginPath();
+    ctx.ellipse(X(s.xc),Z(0),r*sx,5,0,Math.PI,2*Math.PI);
+    ctx.fill();
+    ctx.fillRect(X(s.xc-r),Z(0),2*r*sx,3);
+  }
+  // baseline & labels
+  ctx.strokeStyle='#30363d'; ctx.beginPath(); ctx.moveTo(0,Z(0)); ctx.lineTo(W,Z(0)); ctx.stroke();
+  // rays from target
+  if(P.showRays){
+    const r=RAD(spx.t), cI=critInt();
+    for(let k=0;k<=8;k++){
+      const ti=(-cI*0.98)+(2*cI*0.98)*(k/8);
+      const xs=spx.xc; // center emission
+      const blk=rayBlocked(xs,Math.tan(ti),res.bars,z.ocTop);
+      const zEnd= blk? blk.zb : z.ocTop;
+      ctx.strokeStyle= blk? 'rgba(248,81,73,.8)':'rgba(86,211,100,.85)';
+      ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(X(xs),Z(0)); ctx.lineTo(X(xs+zEnd*Math.tan(ti)),Z(zEnd)); ctx.stroke();
+      // 출사 후 공기 굴절선
+      if(!blk){
+        const air=toAir(ti);
+        if(air!==null){
+          const xe=xs+z.ocTop*Math.tan(ti);
+          const L=18;
+          ctx.strokeStyle='rgba(86,211,100,.5)';
+          ctx.beginPath(); ctx.moveTo(X(xe),Z(z.ocTop));
+          ctx.lineTo(X(xe+L*Math.sin(air)/sx*sx/sx*sx),Z(z.ocTop)-L*Math.cos(air)*1); // 방향 표시
+          ctx.stroke();
+        }
+      }
+    }
+  }
+  // target marker
+  ctx.fillStyle=COL[spx.t]; ctx.font='11px sans-serif';
+  ctx.fillText('▲ '+labelOf(spx.t),X(spx.xc)-12,Z(0)+16);
+}
+function labelOf(t){return {R:'Red',G:'Green',B:'Blue',SkyB:'SkyBlue'}[t];}
+
+function drawTop(){
+  const c=$('tv'), ctx=fitCanvas(c); const W=c.width,H=c.height;
+  ctx.clearRect(0,0,W,H);
+  // 간이 Diamond Pentile 평면도
+  const unitX = P.skyOn? 110:90;
+  const cols = Math.floor(W/unitX)+1, rows=2;
+  function dia(cx,cy,rx,ry,col){ ctx.fillStyle=col; ctx.beginPath();
+    ctx.moveTo(cx,cy-ry);ctx.lineTo(cx+rx,cy);ctx.lineTo(cx,cy+ry);ctx.lineTo(cx-rx,cy);ctx.closePath();ctx.fill();}
+  for(let r=0;r<rows;r++){
+    for(let ccol=0;ccol<cols;ccol++){
+      const bx=ccol*unitX+30, by=60+r*90;
+      // R / B(또는 Sky) 큰 다이아 (행 교대)
+      const big = ((ccol+r)%2===0)? 'R' : (P.skyOn && (ccol%2===1)?'SkyB':'B');
+      dia(bx,by, P.skyOn?14:16, 22, COL[big]);
+      // G 작은 다이아 (대각 위치)
+      dia(bx+unitX/2,by, 10,15, COL.G);
+      dia(bx,by-45,10,15,COL.G);
+    }
+  }
+  ctx.fillStyle='#8b949e'; ctx.font='10px sans-serif';
+  ctx.fillText(P.skyOn?'R / B / SkyB 교대 + G':'R / B + G  (Sky 미사용)',8,H-8);
+}
+
+function drawChart(curve, gref, m){
+  const c=$('chart'), ctx=fitCanvas(c); const W=c.width,H=c.height;
+  ctx.clearRect(0,0,W,H);
+  const padL=34,padB=22,padT=8,padR=8;
+  const x=a=>padL+(a+90)/180*(W-padL-padR);
+  const y=t=>H-padB-t*(H-padB-padT);
+  // grid
+  ctx.strokeStyle='#21262d'; ctx.fillStyle='#8b949e'; ctx.font='9px sans-serif';
+  for(let a=-90;a<=90;a+=30){ ctx.beginPath();ctx.moveTo(x(a),padT);ctx.lineTo(x(a),H-padB);ctx.stroke();
+    ctx.fillText(a+'°',x(a)-8,H-8);}
+  for(let t=0;t<=1;t+=0.25){ ctx.beginPath();ctx.moveTo(padL,y(t));ctx.lineTo(W-padR,y(t));ctx.stroke();
+    ctx.fillText((t*100)+'%',2,y(t)+3);}
+  // 임계선
+  ctx.strokeStyle='#f0883e'; ctx.setLineDash([4,3]); ctx.beginPath();
+  ctx.moveTo(padL,y(P.thr)); ctx.lineTo(W-padR,y(P.thr)); ctx.stroke(); ctx.setLineDash([]);
+  // Normal Green 기준
+  if(gref){ ctx.strokeStyle='#8b949e'; ctx.lineWidth=1.2; ctx.beginPath();
+    gref.forEach((p,i)=>{const px=x(p.air),py=y(p.T); i?ctx.lineTo(px,py):ctx.moveTo(px,py);}); ctx.stroke(); }
+  // 대상
+  ctx.strokeStyle='#58a6ff'; ctx.lineWidth=2; ctx.beginPath();
+  curve.forEach((p,i)=>{const px=x(p.air),py=y(p.T); i?ctx.lineTo(px,py):ctx.moveTo(px,py);}); ctx.stroke();
+  // 손해시작각 마커
+  if(m.loss!=null){ ctx.fillStyle='#f0883e';
+    [m.loss,-m.loss].forEach(a=>{ctx.beginPath();ctx.arc(x(a),y(P.thr),3,0,7);ctx.fill();}); }
+}
+
+/* =================== 메인 갱신 =================== */
+function fmt(v){return v==null?'없음(전 구간 통과)':('±'+v.toFixed(1)+'°');}
+
+function update(){
+  readUI();
+  $('ppiBadge').textContent=P.ppi+' PPI';
+  $('privPpiBadge').textContent='Privacy '+Math.round(P.ppi/Math.SQRT2)+' PPI';
+
+  const res=analyze(P.skyOn,P.target);
+  const gres=analyze(P.skyOn,'G');           // Normal Green 기준(같은 Sky 조건)
+  if(!res){return;}
+  drawCross(res); drawTop();
+  drawChart(res.curve, gres?gres.curve:null, res.m);
+
+  $('rTarget').textContent=labelOf(P.target);
+  $('rLoss').textContent=fmt(res.m.loss);
+  $('rHalf').textContent=fmt(res.m.half);
+  $('rCut').textContent=fmt(res.m.cut);
+  $('rGref').textContent=fmt(gres.m.loss);
+  const lossT=res.m.loss??999, lossG=gres.m.loss??999;
+  const v=$('rVerdict');
+  if(P.target==='G'){ v.innerHTML='<span class="pill ok">기준 자체</span>'; }
+  else if(lossT>=lossG-0.5){ v.innerHTML='<span class="pill ok">기준 이상 ✓</span>'; }
+  else { v.innerHTML='<span class="pill bad">'+(lossG-lossT).toFixed(1)+'° 손해</span>'; }
+
+  // Sky 유무 비교 (Normal Green)
+  const gOff = analyzeWith(false,'G'); const gOn = analyzeWith(true,'G');
+  const tbl=$('skyTbl');
+  tbl.innerHTML='<tr><th>케이스</th><th>손해시작°</th><th>반치°</th><th>Δ손해</th></tr>';
+  const base=gOff.m.loss;
+  [['Sky 없음',gOff],['Sky 있음',gOn]].forEach(([nm,r])=>{
+    const d=(r.m.loss!=null&&base!=null)?(r.m.loss-base):null;
+    tbl.insertAdjacentHTML('beforeend',
+      `<tr><td>${nm}</td><td>${r.m.loss?.toFixed(1)??'–'}</td><td>${r.m.half?.toFixed(1)??'–'}</td>
+       <td style="color:${d<0?'#f97583':'#56d364'}">${d==null?'–':(d>0?'+':'')+d.toFixed(1)}°</td></tr>`);
+  });
+  const dd=(gOn.m.loss!=null&&gOff.m.loss!=null)?(gOff.m.loss-gOn.m.loss):0;
+  $('skyMsg').textContent = dd>0.3
+    ? `Sky Blue 추가 시 Green 시야각이 약 ${dd.toFixed(1)}° 좁아짐(손해 ↑). 개선안 적용 필요.`
+    : 'Sky Blue 유무에 따른 Green 시야각 차이 미미.';
+
+  // PPI별 요약
+  const pt=$('ppiTbl'); pt.innerHTML='<tr><th>PPI</th><th>Priv.PPI</th><th>G 손해°</th><th>B 손해°</th></tr>';
+  const cur=P.ppi;
+  [499,566,610].forEach(p=>{ P.ppi=p;
+    const g=analyze(P.skyOn,'G'), b=analyze(P.skyOn,'B');
+    pt.insertAdjacentHTML('beforeend',
+      `<tr><td>${p}</td><td>${Math.round(p/Math.SQRT2)}</td>
+       <td>${g.m.loss?.toFixed(1)??'–'}</td><td>${b.m.loss?.toFixed(1)??'–'}</td></tr>`);
+  });
+  P.ppi=cur;
+}
+function analyzeWith(skyOn,type){ const s=P.skyOn; P.skyOn=skyOn; const r=analyze(skyOn,type); P.skyOn=s; return r; }
+
+/* ---- 자동탐색: BM2/BM3 선폭 & Blue shift 로 Green 손해시작각을 Sky-off 기준에 맞춤 ---- */
+function autofix(){
+  readUI();
+  const targetLoss = analyzeWith(false,'G').m.loss; // Sky 없는 Green 기준
+  if(targetLoss==null){ $('autofixMsg').textContent='기준 시야각이 무한대라 탐색 생략.'; return; }
+  let best=null;
+  const w2s=[4,5,6,7,8], w3s=[4,5,6,7,8], shs=[-6,-4,-2,0,2,4,6];
+  for(const w2 of w2s) for(const w3 of w3s) for(const sh of shs){
+    P.b2w=w2;P.b3w=w3;P.sh=sh;
+    const r=analyzeWith(true,'G');
+    if(r.m.loss==null) continue;
+    const err=Math.abs(r.m.loss-targetLoss);
+    if(!best||err<best.err) best={err,w2,w3,sh,loss:r.m.loss};
+  }
+  if(best){
+    $('b2w').value=best.w2; $('b3w').value=best.w3; $('sh').value=best.sh;
+    $('autofixMsg').innerHTML=`추천: BM2선폭 ${best.w2}, BM3선폭 ${best.w3}, Blue shift ${best.sh} → `+
+      `Sky-on Green 손해시작각 ${best.loss.toFixed(1)}° (기준 ${targetLoss.toFixed(1)}°, 오차 ${best.err.toFixed(1)}°)`;
+    update();
+  }
+}
+
+/* ---- 기본값 ---- */
+const DEFAULTS={ppi:'499',skyOn:false,target:'G',thr:95,dB:15.2,dG:13.44,dR:14.6,dS:15.2,
+  gBG:21.67,gRG:22.56,b1z:9.5,b1t:4.3,b2g:6,b2t:2,b2w:6,b3g:7.5,b3t:2,b3w:6,oc:2.5,nW:1.5,
+  sh:0,b4on:false,b4z:24,b4t:2,b4w:6,showRays:true};
+function resetAll(){
+  for(const k in DEFAULTS){ const el=$(k); if(!el)continue;
+    if(el.type==='checkbox') el.checked=DEFAULTS[k]; else el.value=DEFAULTS[k]; }
+  update();
+}
+
+/* ---- 이벤트 바인딩 ---- */
+document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',update));
+$('reset').addEventListener('click',resetAll);
+$('autofix').addEventListener('click',autofix);
+window.addEventListener('resize',update);
+update();
+</script>
+</body>
+</html>
